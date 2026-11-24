@@ -4,6 +4,10 @@
 
 No extra hardware is needed, only a webcam.
 
+### ▶ [Try Ishara Web in your browser](https://romaisamustabshirah.github.io/Ishara/)
+
+No install: allow your camera and play. The web version controls a built-in music player and the page brightness. The desktop app below controls your real system volume, brightness and media keys.
+
 ## Gestures
 
 | Pose | Left hand | Right hand |
@@ -36,7 +40,7 @@ webcam ─► MediaPipe Hand Landmarker (21 points per hand)
 Requires Python 3.10–3.12 and a webcam.
 
 ```bash
-git clone https://github.com/<your-username>/ishara.git
+git clone https://github.com/RomaisaMustabshirah/ishara.git
 cd ishara
 python -m venv venv
 venv\Scripts\activate        # Windows
@@ -64,6 +68,18 @@ Options: `python -m ishara --camera 1` uses another camera, and `python -m ishar
 | Brightness | ✓ | ✓ (supported displays) | — |
 | Media keys | ✓ | ✓ (needs `playerctl`) | — |
 
+## Ishara Web
+
+`docs/index.html` is a browser version of Ishara, hosted on GitHub Pages. It uses the same gesture rules as the desktop app, running on MediaPipe's JavaScript hand tracker:
+
+- **Left pinch** dims or brightens the page
+- **Right pinch** sets the volume of a built-in player
+- **Swipe** changes track, **fists** mute or play / pause
+- **Privacy view (P)** hides the camera image and shows only your hand skeleton
+- The music is original, generated live in the browser with the Web Audio API
+
+Everything runs locally in the browser. The camera feed is never uploaded.
+
 ## Project structure
 
 ```
@@ -76,6 +92,8 @@ ishara/
 │   ├── system.py       # volume, brightness, media keys on background threads
 │   ├── hud.py          # on-screen drawing
 │   └── config.py       # settings in ~/.ishara/config.json
+├── docs/
+│   └── index.html      # Ishara Web (GitHub Pages)
 ├── tests/
 │   └── test_gestures.py
 ├── requirements.txt

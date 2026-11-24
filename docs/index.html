@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ishara · اشارہ — gesture control in your browser</title>
+<meta name="description" content="Control music and brightness with hand gestures through your webcam. Runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0d0c;
+    --panel: rgba(22, 20, 19, 0.72);
+    --line: rgba(255, 255, 255, 0.09);
+    --text: #f3efe9;
+    --muted: #9c958c;
+    --gold: #ffc346;
+    --teal: #28c8be;
+    --coral: #ff786e;
+    --radius: 18px;
+    --font: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  kbd {
+    font-family: var(--font); font-size: 0.78em; font-weight: 600;
+    padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.06);
+  }
+  .urdu { font-family: "Noto Nastaliq Urdu", serif; font-weight: 500; }
+
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  video { display: none; }
+
+  /* ---------- top bar ---------- */
+  header {
+    position: fixed; top: 16px; left: 16px; right: 16px; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    pointer-events: none;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; pointer-events: auto; }
+  .brand b { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .brand .urdu { font-size: 18px; color: var(--gold); }
+  .brand small { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .tools { display: flex; gap: 8px; pointer-events: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    transition: border-color .2s, background .2s;
+  }
+  .chip:hover { border-color: rgba(255,255,255,0.25); }
+  .chip[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
+  .chip kbd { font-size: 11px; }
+
+  /* ---------- cards ---------- */
+  .card {
+    position: fixed; bottom: 16px; z-index: 5;
+    width: min(330px, calc(50vw - 24px));
+    padding: 16px 18px; border-radius: var(--radius);
+    background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  }
+  #lightCard { left: 16px; }
+  #playerCard { right: 16px; }
+  .card h3 {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  .card h3 .hand { font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .meter { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .bar { flex: 1; height: 8px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 50%; border-radius: inherit; transition: width .08s linear; }
+  #lightBar { background: var(--gold); }
+  #volBar { background: var(--teal); }
+  .pct { font-size: 20px; font-weight: 600; min-width: 54px; text-align: right; font-variant-numeric: tabular-nums; }
+  .status { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .status.on { color: var(--text); }
+
+  .track { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+  .track canvas { width: 64px; height: 40px; flex: none; }
+  .track b { display: block; font-size: 17px; font-weight: 600; }
+  .track span { font-size: 12px; color: var(--muted); }
+  .controls { display: flex; gap: 6px; margin-top: 12px; }
+  .controls button {
+    flex: 1; padding: 7px 0; border-radius: 10px; font-size: 14px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--line);
+  }
+  .controls button:hover { background: rgba(255,255,255,0.12); }
+  .muted-tag { color: var(--coral); }
+
+  /* ---------- help ---------- */
+  #help {
+    position: fixed; top: 72px; left: 16px; z-index: 5; width: min(330px, calc(100vw - 32px));
+    padding: 16px 18px; border-radius: var(--radius);
+    background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    font-size: 13px; line-height: 1.5;
+  }
+  #help[hidden] { display: none; }
+  #help h4 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  #help li { list-style: none; display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); }
+  #help li:first-child { border-top: 0; }
+  #help li b { font-weight: 600; }
+  #help p { margin-top: 10px; color: var(--muted); font-size: 12px; }
+
+  /* ---------- toasts ---------- */
+  #toasts { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 6; display: grid; gap: 8px; justify-items: center; pointer-events: none; }
+  .toast {
+    padding: 9px 18px; border-radius: 999px; font-size: 15px; font-weight: 600;
+    background: rgba(14,13,12,0.85); border: 1px solid var(--line);
+    animation: toast 1.6s ease forwards;
+  }
+  @keyframes toast {
+    0% { opacity: 0; transform: translateY(-6px) scale(.97); }
+    12%, 75% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+
+  /* ---------- calibration ---------- */
+  #calib {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6;
+    width: min(440px, calc(100vw - 32px)); text-align: center;
+    padding: 24px; border-radius: var(--radius);
+    background: rgba(14,13,12,0.88); border: 1px solid var(--line);
+  }
+  #calib[hidden] { display: none; }
+  #calib h2 { font-size: 22px; color: var(--gold); }
+  #calib p { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  #calibCount { margin-top: 14px; font-size: 14px; color: var(--teal); font-variant-numeric: tabular-nums; }
+
+  /* ---------- brightness dimmer ---------- */
+  #dim { position: fixed; inset: 0; z-index: 8; background: #000; opacity: 0; pointer-events: none; transition: opacity .08s linear; }
+
+  /* ---------- intro ---------- */
+  #intro {
+    position: fixed; inset: 0; z-index: 10; overflow-y: auto;
+    display: grid; place-items: center; padding: 24px;
+    background:
+      radial-gradient(1000px 600px at 15% 10%, rgba(255,195,70,0.14), transparent 60%),
+      radial-gradient(900px 600px at 90% 90%, rgba(40,200,190,0.12), transparent 60%),
+      var(--bg);
+    transition: opacity .5s ease, visibility .5s;
+  }
+  #intro.gone { opacity: 0; visibility: hidden; }
+  .intro-inner { width: min(720px, 100%); }
+  .intro-inner .urdu { font-size: clamp(34px, 6vw, 52px); color: var(--gold); line-height: 1.6; }
+  .intro-inner h1 { font-size: clamp(44px, 8vw, 76px); font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+  .lede { margin-top: 14px; font-size: clamp(16px, 2.2vw, 19px); color: var(--muted); max-width: 560px; line-height: 1.5; }
+  .gestures { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .g { padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); }
+  .g b { display: block; font-size: 15px; }
+  .g span { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .g.l b { color: var(--gold); }
+  .g.r b { color: var(--teal); }
+  .g.x b { color: var(--coral); }
+  .start-row { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+  #startBtn {
+    padding: 14px 28px; border-radius: 999px; font-size: 17px; font-weight: 600;
+    color: #1a1407; background: var(--gold); transition: transform .15s, opacity .2s;
+  }
+  #startBtn:hover { transform: translateY(-1px); }
+  #startBtn:disabled { opacity: .6; cursor: progress; transform: none; }
+  #privacyStart { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; }
+  #privacyStart input { accent-color: var(--gold); width: 16px; height: 16px; }
+  #introStatus { margin-top: 14px; min-height: 22px; font-size: 14px; color: var(--muted); }
+  #introStatus.error { color: var(--coral); }
+  .fine { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .fine a { color: var(--text); }
+
+  @media (max-width: 640px) {
+    .card { width: calc(100vw - 32px); left: 16px !important; right: 16px !important; }
+    #lightCard { bottom: 190px; }
+    .brand small, .chip .label { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+<video id="cam" playsinline muted></video>
+
+<header>
+  <div class="brand"><b>Ishara</b><span class="urdu">اشارہ</span><small id="fps"></small></div>
+  <div class="tools">
+    <button class="chip" id="privacyBtn" aria-pressed="false" title="Hide the camera image"><span class="label">Privacy view</span><kbd>P</kbd></button>
+    <button class="chip" id="calibBtn" title="Learn your pinch range"><span class="label">Calibrate</span><kbd>C</kbd></button>
+    <button class="chip" id="helpBtn" aria-pressed="true" title="Show gestures"><span class="label">Gestures</span><kbd>H</kbd></button>
+  </div>
+</header>
+
+<aside id="help">
+  <h4>Gestures</h4>
+  <ul>
+    <li><b>Pinch</b><span>Ring + pinky folded. Thumb–index distance sets the level. Left = brightness, right = volume.</span></li>
+    <li><b>Open palm</b><span>Rest. Nothing changes, so you can move freely.</span></li>
+    <li><b>Swipe</b><span>Open palm, move fast left or right: previous / next track.</span></li>
+    <li><b>Fist (hold)</b><span>Right = mute. Left = play / pause.</span></li>
+  </ul>
+  <p>Keys: <kbd>Space</kbd> play · <kbd>M</kbd> mute · <kbd>←</kbd><kbd>→</kbd> tracks</p>
+</aside>
+
+<section class="card" id="lightCard">
+  <h3>Brightness <span class="hand">left hand</span></h3>
+  <div class="meter"><div class="bar"><i id="lightBar"></i></div><div class="pct" id="lightPct">100%</div></div>
+  <div class="status" id="lightStatus">show your left hand</div>
+</section>
+
+<section class="card" id="playerCard">
+  <h3>Now playing <span class="hand">right hand</span></h3>
+  <div class="track">
+    <canvas id="viz" width="128" height="80"></canvas>
+    <div><b id="trackName">—</b><span id="trackSub"></span></div>
+  </div>
+  <div class="meter"><div class="bar"><i id="volBar"></i></div><div class="pct" id="volPct">60%</div></div>
+  <div class="status" id="volStatus">show your right hand</div>
+  <div class="controls">
+    <button id="prevBtn" title="Previous track">⏮</button>
+    <button id="playBtn" title="Play / pause">⏸</button>
+    <button id="nextBtn" title="Next track">⏭</button>
+    <button id="muteBtn" title="Mute">🔊</button>
+  </div>
+</section>
+
+<div id="toasts"></div>
+
+<div id="calib" hidden>
+  <h2>Calibrating</h2>
+  <p>Make the pinch pose with both hands, then close and open your thumb and index finger fully, again and again.</p>
+  <div id="calibCount"></div>
+</div>
+
+<div id="dim"></div>
+
+<div id="intro">
+  <div class="intro-inner">
+    <div class="urdu">اشارہ</div>
+    <h1>Ishara</h1>
+    <p class="lede">Control music and light with your hands. Ishara means <em>gesture</em> in Urdu. Allow your camera, show your hands, and play.</p>
+
+    <div class="gestures">
+      <div class="g l"><b>Left pinch</b><span>Thumb–index distance sets the brightness</span></div>
+      <div class="g r"><b>Right pinch</b><span>Thumb–index distance sets the volume</span></div>
+      <div class="g"><b>Open palm</b><span>Rest. Swipe left / right to change track</span></div>
+      <div class="g x"><b>Fist (hold)</b><span>Right mutes, left plays / pauses</span></div>
+    </div>
+
+    <div class="start-row">
+      <button id="startBtn">Start camera</button>
+      <label id="privacyStart"><input type="checkbox" id="privacyCheck"> Start in privacy view (hands only)</label>
+    </div>
+    <div id="introStatus"></div>
+
+    <p class="fine">
+      🔒 Everything runs on your device. Your camera feed is never uploaded or recorded.<br>
+      Works best in Chrome or Edge on a laptop, in good light. The desktop version, which controls real system volume and brightness,
+      is on <a href="https://github.com/RomaisaMustabshirah/Ishara">GitHub</a>.
+    </p>
+  </div>
+</div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+// <gestures> ===================================================================
+// Pure gesture logic (same rules as the desktop app). Points are [x, y] in pixels.
+const WRIST = 0, THUMB_TIP = 4, INDEX_MCP = 5, INDEX_TIP = 8, MIDDLE_MCP = 9, PINKY_MCP = 17;
+const FINGERS = { index: [6, 8], middle: [10, 12], ring: [14, 16], pinky: [18, 20] };
+const HAND_CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
+];
+const EXTENDED_REACH = 1.15;  // finger straight
+const CURLED_REACH = 0.90;    // finger folded into the palm
+const Pose = { PINCH: "pinch", OPEN: "open", FIST: "fist", OTHER: "other" };
+
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const palmSize = (p) => dist(p[WRIST], p[MIDDLE_MCP]);
+const palmCenter = (p) => [
+  (p[WRIST][0] + p[INDEX_MCP][0] + p[PINKY_MCP][0]) / 3,
+  (p[WRIST][1] + p[INDEX_MCP][1] + p[PINKY_MCP][1]) / 3,
+];
+
+function pinchRatio(p) {
+  const size = palmSize(p);
+  return size > 1e-6 ? dist(p[THUMB_TIP], p[INDEX_TIP]) / size : 0;
+}
+
+function fingerReach(p, name) {
+  const [pip, tip] = FINGERS[name];
+  const base = dist(p[WRIST], p[pip]);
+  return base > 1e-6 ? dist(p[WRIST], p[tip]) / base : 0;
+}
+
+function classifyPose(p) {
+  const r = Object.keys(FINGERS).map((n) => fingerReach(p, n)); // index, middle, ring, pinky
+  if (r.every((x) => x > EXTENDED_REACH)) return Pose.OPEN;
+  if (r.every((x) => x < CURLED_REACH)) return Pose.FIST;
+  if (r[2] <= EXTENDED_REACH && r[3] <= EXTENDED_REACH) return Pose.PINCH;
+  return Pose.OTHER;
+}
+
+class PoseFilter {
+  constructor(frames = 3) { this.frames = frames; this.reset(); }
+  reset() { this.stable = Pose.OTHER; this.cand = null; this.count = 0; }
+  update(pose) {
+    if (pose === this.stable) { this.cand = null; this.count = 0; return this.stable; }
+    if (pose === this.cand) this.count++; else { this.cand = pose; this.count = 1; }
+    if (this.count >= this.frames) { this.stable = pose; this.cand = null; this.count = 0; }
+    return this.stable;
+  }
+}
+
+class HoldTrigger {
+  constructor(hold = 0.6) { this.hold = hold; this.start = null; this.fired = false; }
+  update(t, active) {
+    if (!active) { this.start = null; this.fired = false; return false; }
+    if (this.start === null) this.start = t;
+    if (!this.fired && t - this.start >= this.hold) { this.fired = true; return true; }
+    return false;
+  }
+  progress(t) {
+    if (this.start === null || this.fired) return 0;
+    return Math.min(1, (t - this.start) / this.hold);
+  }
+}
+
+class SwipeDetector {
+  constructor({ distance = 0.28, window = 0.35, cooldown = 1.0, maxSlope = 0.6 } = {}) {
+    Object.assign(this, { distance, window, cooldown, maxSlope });
+    this.hist = []; this.last = -1e9;
+  }
+  update(t, x, y, active) {
+    if (!active) { this.hist.length = 0; return null; }
+    this.hist.push([t, x, y]);
+    while (this.hist.length && t - this.hist[0][0] > this.window) this.hist.shift();
+    if (t - this.last < this.cooldown || this.hist.length < 3) return null;
+    const [, x0, y0] = this.hist[0];
+    const dx = x - x0, dy = y - y0;
+    if (Math.abs(dx) >= this.distance && Math.abs(dy) <= Math.abs(dx) * this.maxSlope) {
+      this.last = t; this.hist.length = 0;
+      return dx > 0 ? "right" : "left";
+    }
+    return null;
+  }
+}
+
+const toPercent = (x, lo, hi) => Math.max(0, Math.min(100, ((x - lo) / (hi - lo)) * 100));
+
+class HandControl {
+  constructor(label, name, color, initial, settings) {
+    Object.assign(this, { label, name, color, settings });
+    this.level = initial; this.visible = false; this.pts = null; this.pose = Pose.OTHER;
+    this.poseFilter = new PoseFilter(settings.poseFrames);
+    this.history = [];
+    this.fist = new HoldTrigger(settings.fistHold);
+    this.swipe = new SwipeDetector({ distance: settings.swipeDistance });
+  }
+  /** Feed one detection frame. Returns events: ["fist", label] or ["swipe", "left"|"right"]. */
+  update(pts, t, w, h) {
+    this.pts = pts; this.visible = !!pts;
+    if (!pts) {
+      this.poseFilter.reset(); this.pose = Pose.OTHER; this.history = [];
+      this.fist.update(t, false); this.swipe.update(t, 0, 0, false);
+      return [];
+    }
+    const raw = classifyPose(pts);
+    const prev = this.pose;
+    this.pose = this.poseFilter.update(raw);
+
+    // Leaving the pinch: undo the drift from the frames where fingers were changing shape.
+    if (prev === Pose.PINCH && this.pose !== Pose.PINCH && this.history.length) {
+      this.level = this.history[0]; this.history = [];
+    }
+    if (this.pose === Pose.PINCH && raw === Pose.PINCH) {
+      const [lo, hi] = this.settings.ranges[this.label];
+      const target = toPercent(pinchRatio(pts), lo, hi);
+      this.level += this.settings.smoothing * (target - this.level);
+      if (target <= 0.5 && this.level < 2) this.level = 0;
+      else if (target >= 99.5 && this.level > 98) this.level = 100;
+      this.history.push(this.level);
+      if (this.history.length > 4) this.history.shift();
+    }
+
+    const events = [];
+    if (this.fist.update(t, this.pose === Pose.FIST)) events.push(["fist", this.label]);
+    const c = palmCenter(pts);
+    const dir = this.swipe.update(t, c[0] / w, c[1] / h, this.pose === Pose.OPEN);
+    if (dir) events.push(["swipe", dir]);
+    return events;
+  }
+}
+
+/** found: [[label, pts], ...] -> { Left: pts, Right: pts }. Duplicate labels fall back to screen side. */
+function assignHands(found) {
+  if (found.length === 2 && found[0][0] === found[1][0]) {
+    const o = [...found].sort((a, b) => a[1][WRIST][0] - b[1][WRIST][0]);
+    found = [["Left", o[0][1]], ["Right", o[1][1]]];
+  }
+  const hands = {};
+  for (const [label, pts] of found) if (!(label in hands)) hands[label] = pts;
+  return hands;
+}
+
+class Calibrator {
+  constructor(duration = 5) { this.duration = duration; this.active = false; this.samples = { Left: [], Right: [] }; }
+  start(t) { this.active = true; this.t0 = t; this.samples = { Left: [], Right: [] }; }
+  remaining(t) { return Math.max(0, this.duration - (t - this.t0)); }
+  feed(label, pts) {
+    if (this.active && pts && classifyPose(pts) === Pose.PINCH) this.samples[label].push(pinchRatio(pts));
+  }
+  finish() {
+    this.active = false;
+    const out = {};
+    for (const [label, values] of Object.entries(this.samples)) {
+      if (values.length < 20) continue;
+      const s = [...values].sort((a, b) => a - b);
+      const q = (p) => { const i = (s.length - 1) * p, a = Math.floor(i), b = Math.ceil(i); return s[a] + (s[b] - s[a]) * (i - a); };
+      const lo = q(0.05), hi = q(0.95);
+      if (hi - lo < 0.3) continue;
+      out[label] = [+(lo + 0.03).toFixed(3), +(hi - 0.05).toFixed(3)];
+    }
+    return out;
+  }
+}
+// </gestures> ==================================================================
+
+
+// ---- Music: original tracks generated live with the Web Audio API ----------
+const TRACKS = [
+  { name: "Barish", sub: "rain on the window", bpm: 76, root: 57,
+    prog: [[0, "m"], [-4, "M"], [3, "M"], [-2, "M"]], arp: [0, 2, 1, 3, 2, 4, 3, 1], perc: false },
+  { name: "Raat", sub: "a quiet night drive", bpm: 66, root: 50,
+    prog: [[0, "m"], [-4, "M"], [-7, "m"], [-5, "M"]], arp: [0, null, 2, null, 4, 3, null, 1], perc: false },
+  { name: "Sehar", sub: "first light", bpm: 96, root: 55,
+    prog: [[0, "M"], [-3, "m"], [-7, "M"], [-5, "M"]], arp: [0, 1, 2, 4, 3, 2, 1, 2], perc: true },
+];
+const midiToHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+class Synth {
+  constructor() { this.ctx = null; this.index = 0; this.playing = false; this.muted = false; this.onChange = () => {}; }
+
+  /** Must be called inside a click handler so the browser allows sound. */
+  init() {
+    const ctx = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.volume = ctx.createGain(); this.volume.gain.value = 0.36;
+    this.mute = ctx.createGain();
+    this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 64;
+    const comp = ctx.createDynamicsCompressor();
+    this.bus = ctx.createGain(); this.bus.gain.value = 0.8;
+    this.bus.connect(this.volume).connect(this.mute).connect(this.analyser).connect(comp).connect(ctx.destination);
+
+    // Echo for the plucked notes
+    this.arpBus = ctx.createGain();
+    const delay = ctx.createDelay(1.0), fb = ctx.createGain(), wet = ctx.createGain();
+    fb.gain.value = 0.32; wet.gain.value = 0.28;
+    this.arpBus.connect(this.bus);
+    this.arpBus.connect(delay).connect(fb).connect(delay);
+    delay.connect(wet).connect(this.bus);
+    this.delay = delay;
+
+    const len = ctx.sampleRate * 0.2;
+    this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = this.noise.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+    this.step = 0; this.bar = 0;
+    this.timer = setInterval(() => this.schedule(), 25);
+  }
+
+  get track() { return TRACKS[this.index]; }
+
+  setVolume(pct) {
+    if (!this.ctx) return;
+    this.volume.gain.setTargetAtTime(Math.pow(pct / 100, 2) * 0.9, this.ctx.currentTime, 0.04);
+  }
+
+  play() {
+    if (!this.ctx) return;
+    this.ctx.resume();
+    if (!this.playing) { this.playing = true; this.nextTime = this.ctx.currentTime + 0.08; }
+    this.onChange();
+  }
+  pause() { if (!this.ctx) return; this.playing = false; this.ctx.suspend(); this.onChange(); }
+  toggle() { this.playing ? this.pause() : this.play(); return this.playing; }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    this.mute.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.03);
+    this.onChange();
+    return this.muted;
+  }
+
+  go(delta) {
+    this.index = (this.index + delta + TRACKS.length) % TRACKS.length;
+    this.step = 0; this.bar = 0;
+    this.nextTime = this.ctx.currentTime + 0.1;
+    this.onChange();
+    if (!this.playing) this.play();
+  }
+
+  schedule() {
+    if (!this.playing) return;
+    const ctx = this.ctx, tr = this.track;
+    const stepDur = 60 / tr.bpm / 4;
+    this.delay.delayTime.value = stepDur * 3;
+    if (this.nextTime < ctx.currentTime - 0.2) this.nextTime = ctx.currentTime + 0.05;
+    while (this.nextTime < ctx.currentTime + 0.12) {
+      this.playStep(tr, this.step, this.bar, this.nextTime, stepDur);
+      this.nextTime += stepDur;
+      this.step = (this.step + 1) % 16;
+      if (this.step === 0) this.bar++;
+    }
+  }
+
+  playStep(tr, s, bar, t, stepDur) {
+    const [offset, quality] = tr.prog[bar % tr.prog.length];
+    const root = tr.root + offset;
+    const third = quality === "m" ? 3 : 4;
+    const chord = [root, root + third, root + 7];
+    const ext = [...chord, root + 12, root + third + 12];
+    if (s === 0) { this.pad(chord, t, stepDur * 16); this.bass(root - 12, t, stepDur * 7); }
+    if (s === 8) this.bass(root - 12, t, stepDur * 6);
+    if (s % 2 === 0) {
+      const idx = tr.arp[(s / 2) % tr.arp.length];
+      if (idx !== null) this.pluck(ext[idx] + 12, t);
+    }
+    if (tr.perc) {
+      if (s === 0 || s === 8) this.kick(t);
+      if (s % 4 === 2) this.hat(t);
+    }
+  }
+
+  pluck(m, t) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+    o.type = "triangle"; o.frequency.value = midiToHz(m);
+    f.type = "lowpass"; f.frequency.value = 2600;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.9);
+    o.connect(f).connect(g).connect(this.arpBus);
+    o.start(t); o.stop(t + 1);
+  }
+
+  pad(notes, t, dur) {
+    const ctx = this.ctx, f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = "lowpass"; f.frequency.value = 850; f.Q.value = 0.4;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(1, t + 0.9);
+    g.gain.setTargetAtTime(0, t + dur - 0.2, 0.35);
+    f.connect(g).connect(this.bus);
+    for (const m of notes) for (const detune of [-7, 7]) {
+      const o = ctx.createOscillator(), v = ctx.createGain();
+      o.type = "sawtooth"; o.frequency.value = midiToHz(m); o.detune.value = detune;
+      v.gain.value = 0.04;
+      o.connect(v).connect(f);
+      o.start(t); o.stop(t + dur + 2);
+    }
+  }
+
+  bass(m, t, dur) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sine"; o.frequency.value = midiToHz(m);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.32, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(g).connect(this.bus);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  kick(t) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+    g.gain.setValueAtTime(0.45, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.26);
+    o.connect(g).connect(this.bus);
+    o.start(t); o.stop(t + 0.3);
+  }
+
+  hat(t) {
+    const ctx = this.ctx, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = this.noise;
+    f.type = "highpass"; f.frequency.value = 7000;
+    g.gain.setValueAtTime(0.05, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.05);
+    src.connect(f).connect(g).connect(this.bus);
+    src.start(t); src.stop(t + 0.06);
+  }
+}
+
+
+// ---- App --------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const canvas = $("stage"), ctx = canvas.getContext("2d"), video = $("cam");
+const COLORS = { gold: "#ffc346", teal: "#28c8be", coral: "#ff786e" };
+
+const STORE_KEY = "ishara-web-v1";
+const DEFAULTS = {
+  ranges: { Left: [0.20, 1.15], Right: [0.20, 1.15] },
+  smoothing: 0.25, poseFrames: 3, fistHold: 0.6, swipeDistance: 0.28, privacy: false,
+};
+function loadSettings() {
+  const s = structuredClone(DEFAULTS);
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (saved?.ranges) Object.assign(s.ranges, saved.ranges);
+    if (typeof saved?.privacy === "boolean") s.privacy = saved.privacy;
+  } catch { /* storage unavailable: use defaults */ }
+  return s;
+}
+function saveSettings() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ ranges: settings.ranges, privacy: settings.privacy })); } catch { /* ignore */ }
+}
+
+const settings = loadSettings();
+const synth = new Synth();
+const calibrator = new Calibrator(5);
+const controls = {
+  Left: new HandControl("Left", "Brightness", COLORS.gold, 100, settings),
+  Right: new HandControl("Right", "Volume", COLORS.teal, 60, settings),
+};
+
+let landmarker = null, running = false, lastVideoTime = -1, lastHands = {};
+let fit = { s: 1, dx: 0, dy: 0, vw: 1, vh: 1 };
+let cw = 0, ch = 0, fps = 0, lastFrame = performance.now();
+
+// ---- UI helpers ----
+function toast(text, color = "#f3efe9") {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = text; el.style.color = color;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), 1700);
+  while ($("toasts").children.length > 3) $("toasts").firstChild.remove();
+}
+
+function setPrivacy(on) {
+  settings.privacy = on;
+  $("privacyBtn").setAttribute("aria-pressed", String(on));
+  saveSettings();
+}
+
+let helpTouched = false;
+function toggleHelp(force) {
+  if (force === undefined) helpTouched = true;
+  const help = $("help");
+  const show = force ?? help.hidden;
+  help.hidden = !show;
+  $("helpBtn").setAttribute("aria-pressed", String(show));
+}
+
+function startCalibration() {
+  if (!running || calibrator.active) return;
+  calibrator.start(performance.now() / 1000);
+  $("calib").hidden = false;
+}
+
+synth.onChange = () => {
+  const tr = synth.track;
+  $("trackName").textContent = tr.name;
+  $("trackSub").textContent = tr.sub;
+  $("playBtn").textContent = synth.playing ? "⏸" : "▶";
+  $("muteBtn").textContent = synth.muted ? "🔇" : "🔊";
+};
+
+function updateCards() {
+  const L = controls.Left, R = controls.Right;
+  $("lightBar").style.width = L.level + "%";
+  $("lightPct").textContent = Math.round(L.level) + "%";
+  $("volBar").style.width = R.level + "%";
+  $("volPct").innerHTML = synth.muted ? '<span class="muted-tag">muted</span>' : Math.round(R.level) + "%";
+  const status = (c) => !c.visible ? `show your ${c.label.toLowerCase()} hand`
+    : c.pose === Pose.PINCH ? "adjusting" : c.pose === Pose.FIST ? "hold…" : c.pose === Pose.OPEN ? "resting" : "tracking";
+  for (const [id, c] of [["lightStatus", L], ["volStatus", R]]) {
+    const el = $(id);
+    el.textContent = status(c);
+    el.classList.toggle("on", c.visible);
+  }
+  // Brightness dims the whole page, never fully black.
+  $("dim").style.opacity = ((1 - L.level / 100) * 0.85).toFixed(3);
+}
+
+// ---- drawing ----
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cw = window.innerWidth; ch = window.innerHeight;
+  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function computeFit() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(cw / vw, ch / vh);
+  fit = { s, vw, vh, dx: (cw - vw * s) / 2, dy: (ch - vh * s) / 2 };
+}
+
+/** Landmark (0..1, unmirrored) -> mirrored screen pixels. */
+const mapPoint = (lm) => [(1 - lm.x) * fit.vw * fit.s + fit.dx, lm.y * fit.vh * fit.s + fit.dy];
+
+function drawBackground() {
+  if (settings.privacy || !video.videoWidth) {
+    const g = ctx.createRadialGradient(cw * 0.3, ch * 0.2, 0, cw * 0.5, ch * 0.5, Math.max(cw, ch));
+    g.addColorStop(0, "#1d1a16"); g.addColorStop(1, "#0b0a09");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = "rgba(255,255,255,0.045)";
+    for (let x = 24; x < cw; x += 32) for (let y = 24; y < ch; y += 32) ctx.fillRect(x, y, 1.5, 1.5);
+    return;
+  }
+  ctx.save();
+  ctx.translate(fit.dx + fit.vw * fit.s, fit.dy);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, fit.vw * fit.s, fit.vh * fit.s);
+  ctx.restore();
+  ctx.fillStyle = "rgba(10,9,8,0.35)";
+  ctx.fillRect(0, 0, cw, ch);
+}
+
+function drawSkeleton(pts, color) {
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.beginPath();
+  for (const [a, b] of HAND_CONNECTIONS) { ctx.moveTo(...pts[a]); ctx.lineTo(...pts[b]); }
+  ctx.stroke();
+  ctx.fillStyle = color;
+  for (const p of pts) { ctx.beginPath(); ctx.arc(p[0], p[1], 3.5, 0, Math.PI * 2); ctx.fill(); }
+}
+
+function drawDial(c, t) {
+  const pts = c.pts, [cx, cy] = palmCenter(pts);
+  const r = Math.max(42, palmSize(pts) * 1.25);
+  const active = c.pose === Pose.PINCH;
+  const color = active ? c.color : "rgba(255,255,255,0.4)";
+  const start = Math.PI * 0.75, sweep = Math.PI * 1.5;
+
+  ctx.lineCap = "round";
+  ctx.lineWidth = 7; ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath(); ctx.arc(cx, cy, r, start, start + sweep); ctx.stroke();
+  if (c.level > 0.5) {
+    ctx.save();
+    if (active) { ctx.shadowColor = c.color; ctx.shadowBlur = 16; }
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.arc(cx, cy, r, start, start + sweep * c.level / 100); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "600 15px 'Space Grotesk', system-ui, sans-serif";
+  ctx.fillStyle = color;
+  ctx.fillText(`${c.name} ${Math.round(c.level)}%`, cx, cy - r - 18);
+
+  if (active) {
+    const a = pts[THUMB_TIP], b = pts[INDEX_TIP];
+    ctx.strokeStyle = c.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+    ctx.fillStyle = c.color;
+    for (const p of [a, b]) { ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  const label = { pinch: "adjusting", open: "resting", fist: "hold…", other: "" }[c.pose];
+  if (label) {
+    ctx.font = "500 13px 'Space Grotesk', system-ui, sans-serif";
+    ctx.fillStyle = c.pose === Pose.FIST ? COLORS.coral : "rgba(255,255,255,0.85)";
+    ctx.fillText(label, cx, cy + r + 22);
+  }
+
+  const prog = c.fist.progress(t);
+  if (prog > 0) {
+    ctx.strokeStyle = COLORS.coral; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(cx, cy, r + 13, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * prog); ctx.stroke();
+  }
+}
+
+const vizCanvas = $("viz"), viz = vizCanvas.getContext("2d");
+const vizData = new Uint8Array(32);
+function drawViz() {
+  const w = vizCanvas.width, h = vizCanvas.height;
+  viz.clearRect(0, 0, w, h);
+  if (!synth.analyser) return;
+  synth.analyser.getByteFrequencyData(vizData);
+  const bars = 10, gap = 4, bw = (w - gap * (bars - 1)) / bars;
+  for (let i = 0; i < bars; i++) {
+    const v = synth.playing && !synth.muted ? vizData[i + 1] / 255 : 0.05;
+    const bh = Math.max(4, v * h);
+    viz.fillStyle = COLORS.teal;
+    viz.globalAlpha = 0.45 + v * 0.55;
+    viz.fillRect(i * (bw + gap), h - bh, bw, bh);
+  }
+  viz.globalAlpha = 1;
+}
+
+// ---- events from gestures ----
+function handleEvent([kind, value]) {
+  if (kind === "fist" && value === "Right") {
+    const muted = synth.toggleMute();
+    toast(muted ? "Muted" : "Unmuted", muted ? COLORS.coral : COLORS.teal);
+  } else if (kind === "fist" && value === "Left") {
+    const playing = synth.toggle();
+    toast(playing ? "Playing" : "Paused");
+  } else if (kind === "swipe") {
+    synth.go(value === "right" ? 1 : -1);
+    toast(value === "right" ? `Next  ›  ${synth.track.name}` : `${synth.track.name}  ‹  Previous`);
+  }
+}
+
+// ---- main loop ----
+function detect(now) {
+  if (video.readyState < 2 || video.currentTime === lastVideoTime) return null;
+  lastVideoTime = video.currentTime;
+  const res = landmarker.detectForVideo(video, now);
+  const handed = res.handedness || res.handednesses || [];
+  const found = (res.landmarks || []).map((lms, i) => {
+    const raw = handed[i]?.[0]?.categoryName || "Right";
+    // MediaPipe labels assume a mirrored image; our input is not mirrored, so swap.
+    const label = raw === "Left" ? "Right" : "Left";
+    return [label, lms.map(mapPoint)];
+  });
+  return assignHands(found);
+}
+
+function loop(now) {
+  if (!running) return;
+  computeFit();
+  const t = now / 1000;
+  const hands = detect(now);
+
+  if (hands) {
+    lastHands = hands;
+    if (calibrator.active) {
+      for (const label of ["Left", "Right"]) {
+        calibrator.feed(label, hands[label]);
+        controls[label].pts = hands[label] || null;
+        controls[label].visible = !!hands[label];
+      }
+      const counts = calibrator.samples;
+      $("calibCount").textContent =
+        `${calibrator.remaining(t).toFixed(1)}s · left ${counts.Left.length} · right ${counts.Right.length}`;
+      if (calibrator.remaining(t) <= 0) {
+        const ranges = calibrator.finish();
+        $("calib").hidden = true;
+        Object.assign(settings.ranges, ranges);
+        if (Object.keys(ranges).length) {
+          saveSettings();
+          toast(`Calibrated: ${Object.keys(ranges).join(" + ").toLowerCase()} hand`, COLORS.gold);
+        } else {
+          toast("Calibration failed: try wider pinches", COLORS.coral);
+        }
+      }
+    } else {
+      for (const [label, c] of Object.entries(controls)) {
+        for (const ev of c.update(hands[label] || null, t, cw, ch)) handleEvent(ev);
+      }
+      synth.setVolume(controls.Right.level);
+    }
+  }
+
+  drawBackground();
+  for (const c of Object.values(controls)) {
+    if (!c.visible || !c.pts) continue;
+    drawSkeleton(c.pts, c.color);
+    if (!calibrator.active) drawDial(c, t);
+  }
+  updateCards();
+  drawViz();
+
+  const dt = now - lastFrame; lastFrame = now;
+  fps = fps * 0.9 + (1000 / Math.max(dt, 1)) * 0.1;
+  $("fps").textContent = `${fps.toFixed(0)} fps`;
+  requestAnimationFrame(loop);
+}
+
+// ---- start ----
+async function createLandmarker() {
+  const files = await FilesetResolver.forVisionTasks(WASM_URL);
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: "VIDEO", numHands: 2,
+    minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+  });
+  try { return await HandLandmarker.createFromOptions(files, opts("GPU")); }
+  catch { return await HandLandmarker.createFromOptions(files, opts("CPU")); }
+}
+
+function introStatus(text, error = false) {
+  const el = $("introStatus");
+  el.textContent = text; el.classList.toggle("error", error);
+}
+
+$("startBtn").addEventListener("click", async () => {
+  const btn = $("startBtn");
+  btn.disabled = true;
+  setPrivacy($("privacyCheck").checked);
+  if (!synth.ctx) synth.init();          // inside the click, so sound is allowed
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    introStatus("This browser can't use the camera here. Open the page over https in Chrome or Edge.", true);
+    btn.disabled = false; return;
+  }
+  introStatus("Asking for camera permission…");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (err) {
+    const blocked = err?.name === "NotAllowedError";
+    introStatus(blocked
+      ? "Camera access was blocked. Click the camera icon in the address bar, choose Allow, then press Start again."
+      : "Couldn't open a camera. Check that one is connected and not used by another app.", true);
+    btn.disabled = false; return;
+  }
+
+  introStatus("Loading the hand model (about 8 MB, only the first time)…");
+  try {
+    landmarker = await createLandmarker();
+  } catch (err) {
+    console.error(err);
+    introStatus("Couldn't load the hand model. Check your internet connection and reload.", true);
+    btn.disabled = false; return;
+  }
+
+  synth.play();
+  $("intro").classList.add("gone");
+  running = true;
+  toast("Show your hands ✋", COLORS.gold);
+  setTimeout(() => { if (!helpTouched) toggleHelp(false); }, 10000);   // get out of the way of your hands
+  requestAnimationFrame(loop);
+});
+
+// ---- buttons & keys ----
+$("privacyBtn").addEventListener("click", () => setPrivacy(!settings.privacy));
+$("calibBtn").addEventListener("click", startCalibration);
+$("helpBtn").addEventListener("click", () => toggleHelp());
+$("prevBtn").addEventListener("click", () => synth.ctx && synth.go(-1));
+$("nextBtn").addEventListener("click", () => synth.ctx && synth.go(1));
+$("playBtn").addEventListener("click", () => synth.ctx && synth.toggle());
+$("muteBtn").addEventListener("click", () => synth.ctx && synth.toggleMute());
+
+window.addEventListener("keydown", (e) => {
+  if (!running || e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === "p") setPrivacy(!settings.privacy);
+  else if (k === "c") startCalibration();
+  else if (k === "h") toggleHelp();
+  else if (k === "m") synth.toggleMute();
+  else if (k === " ") { e.preventDefault(); synth.toggle(); }
+  else if (e.key === "ArrowRight") synth.go(1);
+  else if (e.key === "ArrowLeft") synth.go(-1);
+});
+
+window.addEventListener("resize", resize);
+resize();
+$("privacyCheck").checked = settings.privacy;
+$("privacyBtn").setAttribute("aria-pressed", String(settings.privacy));
+synth.onChange();
+updateCards();
+drawBackground();
+</script>
+</body>
+</html>
