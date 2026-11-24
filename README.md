@@ -36,7 +36,7 @@ webcam ─► MediaPipe Hand Landmarker (21 points per hand)
 Requires Python 3.10–3.12 and a webcam.
 
 ```bash
-git clone https://github.com/<your-username>/ishara.git
+git clone https://github.com/RomaisaMustabshirah/ishara.git
 cd ishara
 python -m venv venv
 venv\Scripts\activate        # Windows
