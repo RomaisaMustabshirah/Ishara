@@ -1,5 +1,7 @@
 # Ishara · اشارہ
 
+![Ishara demo](demo.gif)
+
 **Control your computer with your hands.** Ishara means *gesture* in Urdu. It watches your hands through the webcam and turns them into controls: your left hand sets screen brightness, your right hand sets volume, and simple poses play, pause, skip and mute.
 
 No extra hardware is needed, only a webcam.

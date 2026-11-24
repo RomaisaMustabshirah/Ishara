@@ -815,9 +815,8 @@ function detect(now) {
   const res = landmarker.detectForVideo(video, now);
   const handed = res.handedness || res.handednesses || [];
   const found = (res.landmarks || []).map((lms, i) => {
-    const raw = handed[i]?.[0]?.categoryName || "Right";
-    // MediaPipe labels assume a mirrored image; our input is not mirrored, so swap.
-    const label = raw === "Left" ? "Right" : "Left";
+    // In the browser, MediaPipe's label already matches the person's real hand.
+    const label = handed[i]?.[0]?.categoryName === "Left" ? "Left" : "Right";
     return [label, lms.map(mapPoint)];
   });
   return assignHands(found);
