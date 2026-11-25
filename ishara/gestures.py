@@ -134,24 +134,34 @@ class HoldTrigger:
 
 
 class SwipeDetector:
-    """Detects a fast horizontal movement. Positions are normalised (0..1)."""
+    """
+    Detects a fast horizontal movement. Positions are normalised (0..1).
+    A fast-moving hand often blurs for a frame or two, so short gaps
+    (up to `grace` seconds) don't cancel a swipe in progress.
+    """
 
-    def __init__(self, distance=0.28, window=0.35, cooldown=1.0, max_slope=0.6):
+    def __init__(self, distance=0.22, window=0.5, cooldown=0.8, max_slope=0.7, grace=0.2):
         self.distance = distance
         self.window = window
         self.cooldown = cooldown
         self.max_slope = max_slope
+        self.grace = grace
         self._hist = deque()
         self._last = -1e9
+        self._inactive_since = None
 
     def update(self, t, x, y, active):
         if not active:
-            self._hist.clear()
+            if self._inactive_since is None:
+                self._inactive_since = t
+            if t - self._inactive_since > self.grace:
+                self._hist.clear()
             return None
+        self._inactive_since = None
         self._hist.append((t, x, y))
         while self._hist and t - self._hist[0][0] > self.window:
             self._hist.popleft()
-        if t - self._last < self.cooldown or len(self._hist) < 3:
+        if t - self._last < self.cooldown or len(self._hist) < 2:
             return None
         _, x0, y0 = self._hist[0]
         dx, dy = x - x0, y - y0

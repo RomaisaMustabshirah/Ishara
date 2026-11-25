@@ -12,6 +12,14 @@ MODEL_URL = (
     "hand_landmarker/float16/1/hand_landmarker.task"
 )
 
+# Bump this when defaults change in a way old config files shouldn't override.
+CONFIG_VERSION = 2
+# Keys reset to the new defaults when an older config file is loaded.
+# v2: smoother swipes, and calibration redone after the left/right hand fix.
+RESET_ON_UPGRADE = {
+    "swipe_distance", "swipe_window", "swipe_cooldown", "left_range", "right_range",
+}
+
 
 @dataclass
 class Settings:
@@ -29,12 +37,14 @@ class Settings:
     pose_frames: int = 3             # frames a pose must hold before it counts
     fist_hold_seconds: float = 0.6   # how long to hold a fist to trigger it
 
-    swipe_distance: float = 0.28     # fraction of frame width
-    swipe_window: float = 0.35       # seconds
-    swipe_cooldown: float = 1.0      # seconds between swipes
+    swipe_distance: float = 0.22     # fraction of frame width
+    swipe_window: float = 0.5        # seconds
+    swipe_cooldown: float = 0.8      # seconds between swipes
 
     show_skeleton: bool = True
     show_help: bool = True
+
+    version: int = CONFIG_VERSION
 
     def range_for(self, label):
         return self.left_range if label == "Left" else self.right_range
@@ -46,9 +56,15 @@ class Settings:
             try:
                 data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
                 known = {f.name for f in fields(cls)}
+                upgrading = data.get("version", 1) < CONFIG_VERSION
                 for key, value in data.items():
-                    if key in known:
-                        setattr(settings, key, value)
+                    if key == "version" or key not in known:
+                        continue
+                    if upgrading and key in RESET_ON_UPGRADE:
+                        continue
+                    setattr(settings, key, value)
+                if upgrading:
+                    print("[config] updated settings to the latest version - press C to recalibrate")
             except (OSError, ValueError) as exc:
                 print(f"[config] ignoring unreadable config: {exc}")
         return settings

@@ -51,7 +51,10 @@ def detect_hands(landmarker, frame, ts):
     found = []
     for i, landmarks in enumerate(result.hand_landmarks):
         pts = np.array([[p.x * w, p.y * h] for p in landmarks], dtype=np.float32)
-        label = result.handedness[i][0].category_name if result.handedness else "Right"
+        raw = result.handedness[i][0].category_name if result.handedness else "Left"
+        # The frame is mirrored before detection, which makes MediaPipe's label
+        # come out reversed, so swap it back to the person's real hand.
+        label = "Left" if raw == "Right" else "Right"
         found.append((label, pts))
     return assign_hands(found)
 

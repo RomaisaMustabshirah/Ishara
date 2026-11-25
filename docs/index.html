@@ -333,15 +333,21 @@ class HoldTrigger {
 }
 
 class SwipeDetector {
-  constructor({ distance = 0.28, window = 0.35, cooldown = 1.0, maxSlope = 0.6 } = {}) {
-    Object.assign(this, { distance, window, cooldown, maxSlope });
-    this.hist = []; this.last = -1e9;
+  // Short gaps (motion blur) up to `grace` seconds don't cancel a swipe in progress.
+  constructor({ distance = 0.22, window = 0.5, cooldown = 0.8, maxSlope = 0.7, grace = 0.2 } = {}) {
+    Object.assign(this, { distance, window, cooldown, maxSlope, grace });
+    this.hist = []; this.last = -1e9; this.inactiveSince = null;
   }
   update(t, x, y, active) {
-    if (!active) { this.hist.length = 0; return null; }
+    if (!active) {
+      if (this.inactiveSince === null) this.inactiveSince = t;
+      if (t - this.inactiveSince > this.grace) this.hist.length = 0;
+      return null;
+    }
+    this.inactiveSince = null;
     this.hist.push([t, x, y]);
     while (this.hist.length && t - this.hist[0][0] > this.window) this.hist.shift();
-    if (t - this.last < this.cooldown || this.hist.length < 3) return null;
+    if (t - this.last < this.cooldown || this.hist.length < 2) return null;
     const [, x0, y0] = this.hist[0];
     const dx = x - x0, dy = y - y0;
     if (Math.abs(dx) >= this.distance && Math.abs(dy) <= Math.abs(dx) * this.maxSlope) {
@@ -392,7 +398,8 @@ class HandControl {
     const events = [];
     if (this.fist.update(t, this.pose === Pose.FIST)) events.push(["fist", this.label]);
     const c = palmCenter(pts);
-    const dir = this.swipe.update(t, c[0] / w, c[1] / h, this.pose === Pose.OPEN);
+    const swiping = raw === Pose.OPEN || this.pose === Pose.OPEN;   // no debounce delay, survives blur
+    const dir = this.swipe.update(t, c[0] / w, c[1] / h, swiping);
     if (dir) events.push(["swipe", dir]);
     return events;
   }
@@ -605,7 +612,7 @@ const COLORS = { gold: "#ffc346", teal: "#28c8be", coral: "#ff786e" };
 const STORE_KEY = "ishara-web-v1";
 const DEFAULTS = {
   ranges: { Left: [0.20, 1.15], Right: [0.20, 1.15] },
-  smoothing: 0.25, poseFrames: 3, fistHold: 0.6, swipeDistance: 0.28, privacy: false,
+  smoothing: 0.25, poseFrames: 3, fistHold: 0.6, swipeDistance: 0.22, privacy: false,
 };
 function loadSettings() {
   const s = structuredClone(DEFAULTS);

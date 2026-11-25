@@ -71,8 +71,10 @@ class HandControl:
         if self.fist.update(t, self.pose == Pose.FIST):
             events.append(("fist", self.label))
         center = palm_center(pts)
-        direction = self.swipe.update(t, center[0] / frame_w, center[1] / frame_h,
-                                      self.pose == Pose.OPEN)
+        # Swipe as soon as one frame shows an open palm (no debounce delay),
+        # and keep going while the steady pose is still "open" during motion blur.
+        swiping = raw == Pose.OPEN or self.pose == Pose.OPEN
+        direction = self.swipe.update(t, center[0] / frame_w, center[1] / frame_h, swiping)
         if direction:
             events.append(("swipe", direction))
         return events

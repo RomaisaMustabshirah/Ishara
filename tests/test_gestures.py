@@ -91,6 +91,39 @@ def test_swipe_detects_direction_and_cooldown():
     assert not any(slow)
 
 
+def test_swipe_survives_motion_blur():
+    """One or two blurry frames in the middle of a swipe must not cancel it."""
+    s = SwipeDetector(distance=0.22)
+    t, x, results = 0.0, 0.30, []
+    for i in range(8):
+        blurry = i in (3, 4)                       # hand not recognised as open
+        results.append(s.update(t, x, 0.5, not blurry))
+        t += 1 / 10                                # a 10 fps laptop camera
+        x += 0.05
+    assert "right" in results
+
+
+def test_swipe_through_control_at_low_fps():
+    ctrl = HandControl("Right", FakeWorker(), (0, 0, 0), Settings())
+    t, events = 0.0, []
+    for i in range(14):
+        events += ctrl.update(make_hand(offset=(200 + i * 70, 400)), t, 1280, 720)
+        t += 1 / 10
+    assert ("swipe", "right") in events
+
+
+def test_old_config_is_upgraded(tmp_path, monkeypatch):
+    import json
+    from ishara import config
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"swipe_distance": 0.28, "left_range": [0.5, 0.9], "camera_index": 1}))
+    monkeypatch.setattr(config, "CONFIG_PATH", path)
+    s = config.Settings.load()
+    assert s.swipe_distance == 0.22                # old swipe setting replaced
+    assert s.left_range == [0.20, 1.15]            # old calibration cleared
+    assert s.camera_index == 1                     # personal choices kept
+
+
 def test_assign_hands_falls_back_to_position():
     a, b = make_hand(offset=(100, 400)), make_hand(offset=(900, 400))
     hands = assign_hands([("Right", b), ("Right", a)])
